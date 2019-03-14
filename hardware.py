@@ -28,7 +28,7 @@ class CPU:
     ])
 
     MicroInstruction = namedtuple(
-        'MicroInstruction', MicroInstructionFields
+        'MicroInstructionFields', MicroInstructionFields
     )
 
     @classmethod

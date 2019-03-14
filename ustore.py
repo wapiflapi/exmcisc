@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 MICROCODE = """
 # Define default values. We use NPI=1 as default WHICH IS UNSAFE :-)
-dflt:  CND=10 NXT=00000  NPI=1                                # NOP.
+dflt:  NPI=1
 
 # Fetch & Decode: All instructions return to here when finished.
 00000: CND=11 NXT=10000  IRC PCC MRE      IRF=0 PCF=0 MAD=00  # fetch
@@ -31,8 +31,19 @@ dflt:  CND=10 NXT=00000  NPI=1                                # NOP.
 10110: CND=00 NXT=00100  SPC              SPF=1               # SUB 1
 10111: CND=00 NXT=00101  SPC              SPF=1               # JPOS 1
 11000: CND=00 NXT=01000  SPC C0C ACC ACW  SPF=1 ACF=11        # INT 1
-
+11001: CND=10 NXT=00000                                       # NOP
+11010: CND=10 NXT=00000                                       # NOP
+11011: CND=10 NXT=00000                                       # NOP
+11100: CND=10 NXT=00000                                       # NOP
+11101: CND=10 NXT=00000                                       # NOP
+11110: CND=10 NXT=00000                                       # NOP
+11111: CND=10 NXT=00000                                       # NOP
 """
+
+# Instruction ideas:
+# - flash microcode
+# - load const
+# - next == self ? Loop/rep ?
 
 
 def repaddr(uaddr):
@@ -70,10 +81,11 @@ def validate_ustore(defined, ustore):
         validate_ucode(uaddr, ui)
 
         if ui.NXT is None:
-            logger.warning(
-                "uaddr=%s: NXT should not be undefined",
-                repaddr(uaddr)
-            )
+            if defined[uaddr]:
+                logger.warning(
+                    "uaddr=%s: NXT should not be undefined",
+                    repaddr(uaddr)
+                )
             continue
 
         if not ui.NXT and ui.CND not in [0, 2]:
@@ -155,6 +167,12 @@ def build_ustore(cpu, text, default=None):
                 repaddr(uaddr)
             )
             continue
+
+        if defined[uaddr]:
+            logger.warning(
+                "uaddr=%s: over writing previous definition.",
+                repaddr(uaddr)
+            )
 
         defined[uaddr] = True
         ustore[uaddr] = cpu.MicroInstruction(**ui)
