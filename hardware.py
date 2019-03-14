@@ -1,4 +1,36 @@
+import logging
+
 from collections import OrderedDict, namedtuple
+
+
+logger = logging.getLogger(__name__)
+
+
+class DebugMemory(list):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reset()
+
+    def reset(self, mval=None):
+        self.mval = mval
+        self.mwrs = []
+        self.mres = []
+
+    def __getitem__(self, item):
+        result = super().__getitem__(item)
+        if self.mval is not None:
+            result = self.mval
+        logger.debug("MEMORY READ  [%#x]:%#x", item, result)
+        self.mres.append((item, result))
+        return result
+
+    def __setitem__(self, item, what):
+        result = super().__setitem__(item, what)
+        if self.mval is not None:
+            result = self.mval
+        logger.debug("MEMORY WRITE [%#x]=%#x", item, what)
+        self.mwrs.append((item, result))
+        return result
 
 
 class CPU:
@@ -12,7 +44,7 @@ class CPU:
         ("IRC", 1),
         ("ACC", 1),
         ("PCC", 1),
-        ("TC", 1),
+        ("TC",  1),
         ("SPC", 1),
         ("MWR", 1),
         # Bus
@@ -61,6 +93,31 @@ class CPU:
         self.sp = 0
         self.cr0 = 0
 
+        # Tap for overwriting microstate.
+        self.uoverwrite = None
+
+    def loadstate(self, udata, upc, ir, acc, pc, t, sp, cr0):
+        self.uoverwrite = udata
+        self.upc = upc
+        self.ir = ir
+        self.acc = acc
+        self.pc = pc
+        self.t = t
+        self.sp = sp
+        self.cr0 = cr0
+
+    def dumpstate(self):
+        return dict(
+            udata=self.uoverwrite or self.ustore[self.upc],
+            upc=self.upc,
+            ir=self.ir,
+            acc=self.acc,
+            pc=self.pc,
+            t=self.t,
+            sp=self.sp,
+            cr0=self.cr0,
+        )
+
     def clock(self):
         self.tick()
         self.tock()
@@ -68,31 +125,32 @@ class CPU:
     def tick(self):
         """Rising Clock Edge"""
 
-        udata = self.ustore[self.upc]
+        udata = self.uoverwrite or self.ustore[self.upc]
 
-        self.upc = (
-            (
-                (
-                    udata.NPI or int(self.cr0 == 0)
-                ) and udata.NXT
-            ) | (
-                [
-                    0,
-                    int(self.t < 0),
-                    int(self.ir != 0),
-                    int(self.ir % 16),
-                ][
-                    (
-                        udata.NPI or int(not self.cr0 == 0)
-                    ) and udata.COND
-                ]
-            )
-        )
+        MUX = [
+            0,
+            int(self.t < 0),
+            int(self.ir != 0),
+            int(self.ir % 16),
+        ]
+
+        CND = (
+            udata.NPI or int(not self.cr0 == 0)
+        ) and udata.CND
+
+        NXT = (
+            udata.NPI or int(self.cr0 == 0)
+        ) and udata.NXT
+
+        logger.debug("NPI=%d, CND=%d, NXT=%#x", udata.NPI, udata.CND, udata.NXT)
+        logger.debug("upc:%#x = NXT:%#x | MUX:%s[CND:%d]",
+                     self.upc, NXT, MUX, CND)
+        self.upc = NXT | MUX[CND]
 
     def tock(self):
         """Falling Clock Edge"""
 
-        udata = self.ustore[self.upc]
+        udata = self.uoverwrite or self.ustore[self.upc]
 
         addr = (
             self.cr0 | [
@@ -103,14 +161,17 @@ class CPU:
             ][
                 udata.MAD
             ]
-        )
+        ) & self.memmask
 
         data = (
             (udata.ACW and self.acc) or
-            (udata.MRE and self.memory[addr])
+            (udata.MRE and self.memory[addr & self.memmask])
         )
 
-        self.memory[addr] = data
+        logger.debug("ADDR=%#x, DATA=%d", addr, data)
+
+        if udata.MWR:
+            self.memory[addr] = data
 
         self.ir = (
             [
