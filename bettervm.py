@@ -2,40 +2,93 @@
 
 import ctypes
 import struct
+import hardware
+import ustore
 
+# XMC - Extended Minimal CISC
+# The architecture is adapted from A Minimal CISC by Douglas W. Jones
+# http://homepage.divms.uiowa.edu/~jones/arch/cisc/
+# Modifications by @wapiflapi include:
+#  - Provisioning for double the number of instructions.
+#  - Adding a memory mask serving as a privilege control.
+#  - Adding an interrupt system.
+#
+# Roadmap:
+#  - Adding Interrupts for IO & Debug.
+#  - Maybe adding some tests ?!
 
 MICROCODE = """
-uaddr || next uadr | clocks |bus |  function   |
-------++-----------+--------+----+-------------+---------
-      ||           | IAPTSM | AM | I A  P S M  |
-      || COND NEXT | RCCCPW | CR | R C  C P A  |
-      ||           | CCC CR | WE | F F  F F D  |
-------++-----------+--------+----+-------------+---------
- 0000 ||  11  1000 | 101000 | 01 | 0 xx 0 x 00 | fetch
- 0001 ||  11  1000 | 100000 | 00 | 1 xx x x xx | decode
- 0010 ||  00  0011 | 000100 | 01 | x xx x x 10 | POP 2
- 0011 ||  00  0111 | 000011 | 10 | x xx x 1 11 | POP 3
- 0100 ||  10  0000 | 010000 | 01 | x 11 x x 10 | SUB 2
- 0101 ||  01  0110 | 000110 | 01 | x xx x 1 10 | JPOS 2
- 0110 ||  00  0000 | 011000 | 01 | x 10 1 x 10 | JPOS 3+
- 0111 ||  10  0000 | 010000 | 01 | x 10 x x 10 | JPOS 3-
- 1000 ||  10  0000 | 000000 | 00 | x xx x x xx | NOP
- 1001 ||  10  0000 | 000011 | 10 | x xx x 0 10 | DUP
- 1010 ||  10  0000 | 010000 | 00 | x 01 x x xx | ONE
- 1011 ||  10  0000 | 010000 | 10 | x 00 x x xx | ZERO
- 1100 ||  10  0000 | 010000 | 01 | x 10 x x 01 | LOAD
- 1101 ||  00  0010 | 000010 | 00 | x xx x 1 xx | POP 1
- 1110 ||  00  0100 | 000010 | 00 | x xx x 1 xx | SUB 1
- 1111 ||  00  0101 | 000010 | 00 | x xx x 1 xx | JPOS 1
+ uaddr || next uadr  | clocks  |bus |  function   |
+-------++------------+---------+----+-------------+---------
+       ||            | CIAPTSM | AM | I A  P S M  |
+       || COND NEXT  | 0RCCCPW | CR | R C  C P A  |
+       ||            | CCCC CR | WE | F F  F F D  |
+-------++------------+---------+----+-------------+---------
+ 00000 ||  11  10000 | 0101000 | 01 | 0 xx 0 x 00 | fetch
+ 00001 ||  11  10000 | 0100000 | 00 | 1 xx x x xx | decode
+ 00010 ||  00  00011 | 0000100 | 01 | x xx x x 10 | POP 2
+ 00011 ||  00  00111 | 0000011 | 10 | x xx x 1 11 | POP 3
+ 00100 ||  10  00000 | 0010000 | 01 | x 11 x x 10 | SUB 2
+ 00101 ||  01  00110 | 0000110 | 01 | x xx x 1 10 | JPOS 2
+ 00110 ||  00  00000 | 0011000 | 01 | x 10 1 x 10 | JPOS 3+
+ 00111 ||  10  00000 | 0010000 | 01 | x 10 x x 10 | JPOS 3-
+
+ 01000 ||  00  00000 | 0001000 | 00 | x x  1 x xx | INT 2
+ 01001 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 01010 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 01011 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 01100 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 01101 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 01110 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 01111 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+
+ 10000 ||  10  00000 | 0000000 | 00 | x xx x x xx | NOP
+ 10001 ||  10  00000 | 0000011 | 10 | x xx x 0 10 | DUP
+ 10010 ||  10  00000 | 0010000 | 00 | x 01 x x xx | ONE
+ 10011 ||  10  00000 | 0010000 | 10 | x 00 x x xx | ZERO
+ 10100 ||  10  00000 | 0010000 | 01 | x 10 x x 01 | LOAD
+ 10101 ||  00  00010 | 0000010 | 00 | x xx x 1 xx | POP 1
+ 10110 ||  00  00100 | 0000010 | 00 | x xx x 1 xx | SUB 1
+ 10111 ||  00  00101 | 0000010 | 00 | x xx x 1 xx | JPOS 1
+
+ 11000 ||  00  01000 | 1010000 | 10 | x 11 x x xx | INT 1
+ 11001 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx | ?? hlt
+ 11010 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx | ?? call
+ 11011 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx | ?? ret / leave
+ 11100 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 11101 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 11110 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+ 11111 ||  xx  xxxxx | xxxxxxx | 01 | x x  x x xx |
+
 """
 
+# Let's talk about memory layout and CR0
+#
+# cr0 is a control register it is ORed with the ADDR bus.
+# - flags in bit outside of memory range are used for other
+#   purposes since they don't affect anything.
+# - bits inside memory range can be used to limit memory access.
+#   this includes fetching instructions.
+#
+# 0xfff0 - Privileged memory mapped registers.
+#    0x0 - CR0 backup
+#    0x1 -
+# 0x0000 - kernel entry point
+#
+# 0x1000 - user entry point
+#
+#
+# 0xfff0 - General memory mapped registers.
+#    0x0 - Interrupt code.
+#    0x1 - Return address
+#    0x2 - Stack base
 
 class VM:
 
     class StateBitField(ctypes.BigEndianStructure):
         _fields_ = [
             ('CND', ctypes.c_uint32, 2),
-            ('NXT', ctypes.c_uint32, 4),
+            ('NXT', ctypes.c_uint32, 5),
             ('IRC', ctypes.c_uint32, 3),
             ('ACC', ctypes.c_uint32, 1),
             ('PCC', ctypes.c_uint32, 1),
@@ -68,7 +121,7 @@ class VM:
             line = "".join(c for c in line if c in "01x")
             # Could activate debug mode and randomize this.
             line = line.replace("x", "0")
-            if len(line) < 16:
+            if len(line) < 23:
                 continue
             ui = cls.StateBitField.from_buffer_copy(
                 struct.pack(">I", int(line, 2))
@@ -83,6 +136,9 @@ class VM:
         return ucode
 
     def __init__(self):
+        # Do we have power?
+        self.running = 0
+
         # MICROCODE
         self.ucode = self.load_ucode_from_ascii(MICROCODE)
 
@@ -91,38 +147,55 @@ class VM:
         self.addr = 0
 
         # REGISTERS
-        self.upc = 0
+        self.cr0 = 0    # Control 0
         self.ir = 0     # Instruction
         self.acc = 0    # Accumulator
         self.t = 0      # Data
         self.sp = 0     # Stack pointer
         self.pc = 0     # Program counter
+        self.upc = 0    # Microprogram counter
 
-        # LEVELS, those are just wires.
+        # STATE, this is just wires basically.
         self.state = self.StateBitField()
 
         # MEMORY
-        self.memory = [0] * 0x10000
+        self.memmask = 0x3fff
+        self.memory = [0] * (self.memmask + 1)
+
+    def start(self):
+        self.running = 1
+        while self.running:
+            self.clock()
 
     def clock(self):
         self.tick()
         self.tock()
 
     def tick(self):
+        """Rising Clock Edge"""
 
         TLZ = 1 if self.t < 0 else 0
         INZ = 1 if self.ir != 0 else 0
-        IMA = self.ir & 0x7
-
-        mux = [0, TLZ, INZ, IMA]
-        upc = mux[self.state.CND] | self.state.NXT
-
-        self.upc = upc
+        IMA = self.ir & 0xf
 
         # Output micro instruction.
-        self.state = self.ucode[self.upc]
+        mux = [0, TLZ, INZ, IMA]
+        upc = mux[self.state.CND] | self.state.NXT
+        self.state = self.ucode[upc]
 
     def tock(self):
+        """Falling Clock Edge"""
+
+        # Update ADDR bus.
+        mux = [self.pc, self.acc, self.sp, self.t]
+        addr = mux[self.state.MAD] | self.cr0
+        self.addr = addr & self.memmask
+
+        # Update DATA bus.
+        if self.state.ACW:
+            self.data = self.acc
+        if self.state.MRE:
+            self.data = self.memory[self.addr]
 
         # Instruction register: IRF, IRC
         A = self.data
@@ -130,7 +203,7 @@ class VM:
         IRF = self.state.IRF
         # 00:: A
         # 01:: B/8
-        ir = A - IRF * A + IRF * (B >> 3)
+        ir = A - IRF * A + IRF * (B >> 4)
 
         # Accumulator register: ACF, ACC, ACW
         A = self.data
@@ -166,17 +239,11 @@ class VM:
         # 1: B
         pc = A + 1 - PCF * A - PCF + PCF * B
 
-        # Memory: MAD, MRE, MWR
-        mux = [self.pc, self.acc, self.sp, self.t]
-        self.addr = mux[self.state.MAD]
-
-        # Trigger copies.
+        # Trigger loads.
         if self.state.IRC:
             self.ir = ir
         if self.state.ACC:
             self.acc = acc
-        if self.state.ACW:
-            self.data = acc
         if self.state.TC:
             self.t = t
         if self.state.SPC:
@@ -185,14 +252,10 @@ class VM:
             self.pc = pc
         if self.state.MWR:
             self.memory[self.addr] = self.data
-        if self.state.MRE:
-            self.data = self.memory[self.addr]
 
 
 def main():
-    vm = VM()
-    while True:
-        vm.clock()
+    ustore.build_ustore(hardware.CPU, ustore.MICROCODE)
 
 
 if __name__ == "__main__":
