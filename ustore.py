@@ -15,6 +15,7 @@ def validate_ucode(uaddr, ui):
     not ui.PCC or ui.PCF in [0, 1]
     not ui.SPC or ui.SPF in [0, 1]
     not ui.C0C or ui.MRE or ui.ACW
+    not ui.TC or ui.MRE or ui.ACW
     ui.NPI or ui.CND == 0b10
     not ui.MRE or ui.MAD in [0, 1, 2, 3]
     not ui.MWR or ui.MAD in [0, 1, 2, 3]
@@ -31,6 +32,31 @@ def validate_ucode(uaddr, ui):
                 repaddr(uaddr), check.replace("ui.", "")
             )
 
+    usedby = {
+        'IRF': 'IRC',
+        'ACF': 'ACC',
+        'PCF': 'PCC',
+        'SPF': 'SPC',
+        'MWR': 'ACW',
+        'MRE': {'IRF': [0], 'ACF': [2, 3], 'TC': [1], 'C0C': [1]},
+        'MAD': {'MRE': [1], 'MWR': [1]},
+    }
+
+    for bit, others in usedby.items():
+        if not getattr(ui, bit):
+            continue
+        if not isinstance(others, dict) and not getattr(ui, others):
+            logger.warning(
+                "uaddr=%s: %s is not useful without %s.",
+                repaddr(uaddr), bit, others
+            )
+        if isinstance(others, dict) and not any(
+                getattr(ui, o) in v for o, v in others.items()
+        ):
+            logger.warning(
+                "uaddr=%s: %s is not useful without any of %s.",
+                repaddr(uaddr), bit, others
+            )
 
 def validate_ustore(defined, ustore):
 
