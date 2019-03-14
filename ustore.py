@@ -78,6 +78,25 @@ def validate_ustore(defined, ustore):
                 )
 
 
+def build_ucode(cpu, defaults, uaddr, line):
+
+    for pair in line.split():
+        k, _, v = pair.partition("=")
+        if not v:
+            v = "1"
+
+        if k not in defaults:
+            logger.warning(
+                "uaddr=%s: skipping unknown %r.",
+                uaddr, k
+            )
+            continue
+
+        defaults[k] = int(v, 2)
+
+    return cpu.MicroInstruction(**defaults)
+
+
 def build_ustore(cpu, text, default=None):
 
     defaultui = {k: default for k in cpu.MicroInstructionFields}
@@ -91,30 +110,19 @@ def build_ustore(cpu, text, default=None):
     defined = [False for _ in ustore]
 
     for line in text.splitlines():
+        line = line.strip()
         if not line or line.startswith("#"):
             continue
 
-        ui = defaultui.copy()
+        dui = defaultui.copy()
 
         uaddr, _, line = line.partition(":")
         line, _, comment = line.partition("#")
 
-        for pair in line.split():
-            k, _, v = pair.partition("=")
-            if not v:
-                v = "1"
-
-            if k not in ui:
-                logger.warning(
-                    "uaddr=%s: skipping unknown %r.",
-                    uaddr, k
-                )
-                continue
-
-            ui[k] = int(v, 2)
+        ui = build_ucode(cpu, dui, uaddr, line)
 
         if uaddr == "dflt":
-            defaultui.update(ui)
+            defaultui.update(dui)
             continue
 
         uaddr = int(uaddr, 2)
@@ -123,7 +131,7 @@ def build_ustore(cpu, text, default=None):
                 "uaddr=%s: skipped because it is outside of addressable ucode.",
                 repaddr(uaddr)
             )
-            continue
+            return None
 
         if defined[uaddr]:
             logger.warning(
@@ -132,7 +140,7 @@ def build_ustore(cpu, text, default=None):
             )
 
         defined[uaddr] = True
-        ustore[uaddr] = cpu.MicroInstruction(**ui)
+        ustore[uaddr] = ui
 
     # Use latest default to initialize everything else.
     for uaddr, _ in enumerate(ustore):
