@@ -39,10 +39,10 @@ class CPU:
 
         # ROM
         self.ustore = ustore
-        if len(ustore) != 2 ** self.MicroInstruction['NXT']:
+        if len(ustore) != 2 ** self.MicroInstructionFields['NXT']:
             raise ValueError(
                 "Micro store does not contain %d entries." % (
-                    2 ** self.MicroInstruction['NXT']
+                    2 ** self.MicroInstructionFields['NXT']
                 ))
 
         # RAM
