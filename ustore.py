@@ -4,48 +4,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-MICROCODE = """
-# Define default values. We use NPI=1 as default WHICH IS UNSAFE :-)
-dflt:  NPI=1
-
-# Fetch & Decode: All instructions return to here when finished.
-00000: CND=11 NXT=10000  IRC PCC MRE      IRF=0 PCF=0 MAD=00  # fetch
-00001: CND=11 NXT=10000  IRC              IRF=1               # decode
-
-# Start of internal functionality.
-00010: CND=00 NXT=00011  MRE TC           MAD=10              # POP 2
-00011: CND=00 NXT=00111  SPC MWR ACW      SPF=1 MAD=11        # POP 3
-00100: CND=10 NXT=00000  ACC MRE          ACF=11 MAD=10       # SUB 2
-00101: CND=01 NXT=00110  TC SPC MRE       SPF=1 MAD=10        # JPOS 2
-00110: CND=00 NXT=00000  ACC PCC MRE      ACF=10 PCF=1 MAD=10 # JPOS 3+
-00111: CND=10 NXT=00000  ACC MRE          ACF=10 MAD=10       # JPOS 3-
-01000: CND=00 NXT=00000  PCC MRE          MAD=10 C0C=1 PCF=1  # INT 2
-
-# Start of first micro instruction for each instruction.
-10000: CND=10 NXT=00000                                       # NOP
-10001: CND=10 NXT=00000  SPC MWR ACW      SPF=0 MAD=10        # DUP
-10010: CND=10 NXT=00000  ACC              ACF=01              # ONE
-10011: CND=10 NXT=00000  ACC ACW          ACF=00              # ZERO
-10100: CND=10 NXT=00000  ACC MRE          ACF=10 MAD=01       # LOAD
-10101: CND=00 NXT=00010  SPC              SPF=1               # POP 1
-10110: CND=00 NXT=00100  SPC              SPF=1               # SUB 1
-10111: CND=00 NXT=00101  SPC              SPF=1               # JPOS 1
-11000: CND=00 NXT=01000  SPC C0C ACC ACW  SPF=1 ACF=11        # INT 1
-11001: CND=10 NXT=00000                                       # NOP
-11010: CND=10 NXT=00000                                       # NOP
-11011: CND=10 NXT=00000                                       # NOP
-11100: CND=10 NXT=00000                                       # NOP
-11101: CND=10 NXT=00000                                       # NOP
-11110: CND=10 NXT=00000                                       # NOP
-11111: CND=10 NXT=00000                                       # NOP
-"""
-
-# Instruction ideas:
-# - flash microcode
-# - load const
-# - next == self ? Loop/rep ?
-
-
 def repaddr(uaddr):
     return "None" if uaddr is None else bin(uaddr)[2:].rjust(5, "0")
 
@@ -138,14 +96,13 @@ def build_ustore(cpu, text, default=None):
 
         ui = defaultui.copy()
 
-        uaddr, line = line.split(":", 1)
-        line, comment = line.split("#", 1)
+        uaddr, _, line = line.partition(":")
+        line, _, comment = line.partition("#")
 
         for pair in line.split():
-            if "=" in pair:
-                k, v = pair.split("=")
-            else:
-                k, v = pair, "1"
+            k, _, v = pair.partition("=")
+            if not v:
+                v = "1"
 
             if k not in ui:
                 logger.warning(
