@@ -5,14 +5,8 @@ USE IEEE.Std_logic_1164.all;
 entity Flip_Flop_4b is
   port(clk: in std_logic;
        set: in std_logic := '0';
-       v1: in std_logic := '0';
-       v2: in std_logic := '0';
-       v3: in std_logic := '0';
-       v4: in std_logic := '0';
-       q1: out std_logic := '0';
-       q2: out std_logic := '0';
-       q3: out std_logic := '0';
-       q4: out std_logic := '0');
+       val: in std_logic_vector(3 downto 0);
+       q: out std_logic_vector(3 downto 0));
 end Flip_Flop_4b;
 
 architecture Flip_Flop_4b of Flip_Flop_4b is
@@ -27,26 +21,26 @@ begin
   fli_flop_1 : Flip_Flop port map (
     clk => clk,
     set => set,
-    val => v1,
-    q => q1
+    val => val(0),
+    q => q(0)
     );
   fli_flop_2 : Flip_Flop port map (
     clk => clk,
     set => set,
-    val => v2,
-    q => q2
+    val => val(1),
+    q => q(1)
     );
   fli_flop_3 : Flip_Flop port map (
     clk => clk,
     set => set,
-    val => v3,
-    q => q3
+    val => val(2),
+    q => q(2)
     );
   fli_flop_4 : Flip_Flop port map (
     clk => clk,
     set => set,
-    val => v4,
-    q => q4
+    val => val(3),
+    q => q(3)
     );  
 end  Flip_Flop_4b;
 
